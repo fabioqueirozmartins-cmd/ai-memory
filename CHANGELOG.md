@@ -11,6 +11,11 @@ version in [`docs/changelog/`](docs/changelog/):
 
 ## [Unreleased]
 
+### Fixed
+- Excluded recognized native Codex suggestion-generation and safety-review jobs
+  from capture across repositories and projectless chats, while preserving
+  real follow-up requests and automatic handoffs (local patch).
+
 ## [3.1.2] - 2026-10-20
 
 ### Fixed

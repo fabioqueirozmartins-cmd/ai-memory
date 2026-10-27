@@ -41,6 +41,8 @@ use super::hook_drain_process;
 use super::hook_spool;
 use super::path_util::{home_dir, strip_windows_verbatim_prefix};
 
+mod app_automation;
+
 // All drain/handoff timings default to the current short values and can be
 // overridden by whole-minute env vars for very high-latency or large-backlog
 // instances. Two kinds: per-request timeouts cap each individual POST / handoff
@@ -835,6 +837,17 @@ where
             return Ok(());
         }
     };
+    if !args.check_capture
+        && app_automation::skip_capture(
+            &resolve_data_dir_with(data_dir.as_deref(), &runtime_env),
+            agent_kind,
+            hook_event,
+            &json,
+        )?
+    {
+        write_success_response(stdout, agent_kind, hook_event)?;
+        return Ok(());
+    }
     // Read before any capture rewrite can drop the prompt text.
     let reload_requested = hook_event == HookEvent::UserPrompt
         && ai_memory_hooks::user_prompt_text(&json)
@@ -7586,6 +7599,56 @@ mod tests {
         let mut args = claude_args(event, server_url);
         args.agent = "codex".into();
         args
+    }
+
+    #[tokio::test]
+    async fn native_app_automation_never_reaches_spool_but_real_prompts_do() {
+        let tmp = tempfile::tempdir().unwrap();
+        let data_dir = tmp.path().join("data");
+        let prompt = "# Overview\n\nGenerate 0 to 3 hyperpersonalized suggestions for what this user can do with Codex in this Projectless task\n\nGet an understanding of the user's intent and goals by deeply viewing their connected apps. Suggest actionable tasks that they would actually act on/click.";
+        for event in [
+            "user-prompt-submit",
+            "pre-tool-use",
+            "post-tool-use",
+            "stop",
+            "pre-compact",
+        ] {
+            let mut args = devin_hook_args(event);
+            args.agent = "codex".into();
+            let stdout = run_hook(
+                &data_dir,
+                args,
+                serde_json::json!({
+                    "session_id": "projectless-automation", "cwd": tmp.path(),
+                    "prompt": prompt, "tool_name": "read_file", "tool_input": {"path": "file.rs"}
+                }),
+            )
+            .await;
+            assert_eq!(
+                serde_json::from_slice::<serde_json::Value>(&stdout).unwrap(),
+                serde_json::json!({})
+            );
+            assert_eq!(hook_spool::spool_len(&hook_spool::spool_dir(&data_dir)), 0);
+        }
+        let mut args = devin_hook_args("user-prompt-submit");
+        args.agent = "codex".into();
+        run_hook(
+            &data_dir,
+            args,
+            serde_json::json!({
+                "session_id": "projectless-automation", "cwd": tmp.path(),
+                "prompt": "Implemente a sugestão que escolhi."
+            }),
+        )
+        .await;
+        let entries = read_spooled_entries(&hook_spool::spool_dir(&data_dir));
+        assert_eq!(entries.len(), 1);
+        assert!(
+            entries[0]
+                .body
+                .contains("Implemente a sugestão que escolhi.")
+        );
+        assert!(!entries[0].body.contains("hyperpersonalized"));
     }
 
     async fn run_hook(data_dir: &Path, args: HookArgs, payload: serde_json::Value) -> Vec<u8> {

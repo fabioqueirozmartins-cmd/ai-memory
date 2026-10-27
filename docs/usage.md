@@ -14,6 +14,25 @@ requirements, and safe local `--check-capture` command are in
 are matched by their path arguments too (`cat docs/adr/*.md`), lexically. This
 is not a general prompt/output DLP filter.
 
+## Native Codex suggestion jobs
+
+Native `ai-memory hook --agent codex` capture recognizes the app's suggestion
+generation and safety-review templates before spooling or sending their text.
+Their tool calls and checkpoints stay out of memory too. The filter applies
+across the installation, including every repository and projectless chats;
+it needs no per-project rule. It matches anchored template signatures, not
+words such as "suggestion", headings such as "Overview", or the user's language.
+
+A genuine follow-up, including a request to implement a selected suggestion,
+resumes normal capture in the same conversation. The end boundary still reaches
+the server, so a job with no real work produces no session page or automatic
+handoff and returns any startup handoff it claimed. Work captured before a
+suggestion job remains eligible for the usual automatic continuity.
+
+The filter covers the two observed Codex templates. Unknown or changed templates
+remain captured. Compatibility shell hooks and direct HTTP clients do not use
+this native-client filter, and existing stored history is unchanged.
+
 ## Cross-agent handoff
 
 You normally do not create handoffs by hand. With lifecycle hooks
